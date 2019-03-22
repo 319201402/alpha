@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>sprite icon</title>
+<style type="text/css">
+	html,body{user-select:none;-webkit-user-select:none}
+	canvas{box-shadow:0 0 3px}
+</style>
+</head>
+<body>
+
+<p><label><input type="checkbox" id="show-label" checked>添加标注</label></p>
+<p><button id="save-btn">download</button><button id="addBtn" title="Ctrl to append">choose file</button></p>
+<p><input id="file-src" type="file" accept="image/*" multiple hidden></p>
+<p><canvas id="canvas"></canvas>
+<p><textarea cols="60" rows="10" id="style-sheet"></textarea>
+
+<script>
+function $(s){return document.querySelector(s)}
+var can=$('#canvas'),lbl=$('#show-label'),
+downBtn=$('#save-btn'),
+styles=$('#style-sheet'),
+ctx=can.getContext('2d'),
+file=$('#file-src'),
+// {x,y,w,h,img:Image}
+imgs=[];var append=false
+addBtn.addEventListener('click',function(e){if(e.ctrlKey){append=true} file.click()})
+file.addEventListener('change',function(e){
+	var files=[].slice.call(this.files);
+	this.value='';
+	if(!append){imgs.length=0}
+	append=false;
+	fetch(files,function (res){
+		loadImgs(res,function (){
+			var t=0
+			imgs.sort((a,b)=>b.w-a.w||b.h-a.h).forEach(a=>{!a.x&&(a.x=0);!a.y&&(a.y=t);t+=a.h});
+			calcStyle()
+			//draw();
+		});
+	})
+})
+lbl.addEventListener('click',function(){
+	if(imgs.length===0){return}
+	//draw()
+})
+downBtn.addEventListener('click',function (){
+	can.toBlob(function (b){
+		var u=URL.createObjectURL(b),btn=document.createElement('a');
+		btn.href=u;
+		btn.download=`${Date.now()}.png`;
+		btn.target="_blank"
+		btn.click();
+
+	},'image/png')
+})
+function draw(){
+	var W=0,H=0,y=0;
+	if(imgs.length<=0){W=320;H=240}
+	//W
+	imgs.forEach(function (m){
+		W=Math.max(m.x+m.w,W)
+		H=Math.max(m.y+m.h,H)
+	});
+	can.width=W;can.height=H;
+	ctx.clearRect(0,0,W,H);
+	imgs.forEach(function(o,n){
+		var x=o.x,y=o.y,w=o.w,h=o.h,m=o.img;
+
+		ctx.drawImage(m,x,y)
+
+		if(lbl.checked){
+			let txt=`${x},${y}-${w},${h}`,txtWidth;
+			ctx.save()
+			ctx.font='8px sans-serif'
+			ctx.strokeStyle="#f0f"
+			ctx.fillStyle="rgba(0,0,0,.5)"
+
+			ctx.fillRect(x,y,w,h)
+			ctx.strokeRect(x+.5,y+.5,w,h);
+
+			if( (txtWidth=ctx.measureText(txt).width) > w){
+				ctx.strokeText(txt.substr(0,txt.length/2),x,y+10)
+				ctx.strokeText(txt.substr(txt.length/2),x,y+20)
+			}else{
+				ctx.strokeText(txt,x,y+10)
+			}
+			if(ev.n===n){
+				// line
+				ctx.strokeStyle="rgba(0,255,0,.5)"
+				//top
+				ctx.moveTo(0,y+.5),ctx.lineTo(W,y+.5)
+				//bottom
+				ctx.moveTo(0,y+h+.5),ctx.lineTo(W,y+h+.5);
+
+				//left
+				ctx.moveTo(x+.5,0),ctx.lineTo(x+.5,H);
+				//right
+				ctx.moveTo(x+w+.5,0),ctx.lineTo(x+w+.5,H);
+
+				ctx.stroke()
+			}
+			ctx.restore()
+		}
+	});
+}
+;(function r(){draw();requestAnimationFrame(r)}())
+function loadImgs(arr,fn){
+	var img=new Image,src=arr.pop();
+	if(!src){return fn()}
+	img.onload=function (){
+		imgs.push({x:0,y:0,w:this.width,h:this.height,img:this})
+		loadImgs(arr,fn)
+	}
+	img.src=src
+}
+
+function fetch(imgArr,fn,res){
+	var f=imgArr.pop(),r=new FileReader,res=res||[];
+	if(!f){return fn(res)}
+	r.onload=function (){
+		var u=URL.createObjectURL(new Blob([r.result],{type:f.type||'image/jpeg'}));
+		res.push(u)
+		fetch(imgArr,fn,res)
+	};
+	r.readAsArrayBuffer(f)
+}
+function calcStyle(){
+	var styleSheet=imgs.map(g=>{return `{background-size:${g.w}px ${g.h}px;background-position:-${g.x}px -${g.y}px}`}).join('\n')
+	styles.value=styleSheet;
+}
+/*********************/
+var ev={drag:false,x:0,y:0,n:-1,left:can.offsetLeft,top:can.offsetTop}
+can.addEventListener('mousedown',function(e){
+	var x=e.offsetX,y=e.offsetY,n=-1,hitted;
+	for(var i=imgs.length;--i>=0;){if(hittest(imgs[i],x,y)){n=i;break}}
+	//if(imgs.some(m=>{n--;return hittest(m,x,y)})){
+	if(n>-1){
+		//z-index
+		resort(imgs,n)
+		ev.drag=true;
+		ev.n=imgs.length-1;
+		hitted=imgs[imgs.length-1];
+		ev.x=x-hitted.x,ev.y=y-hitted.y;
+	}
+})
+window.addEventListener('mousemove',function(e){
+	var shift=e.shiftKey,x=e.pageX-ev.left,y=e.pageY-ev.top,ox,oy,ow,oh,img,it,threshold=10,xt,yt;
+	if(!ev.drag){return}
+	img=imgs[ev.n];
+	ow=img.w,oh=img.h;
+	ox=x-ev.x,oy=y-ev.y;
+	ox=Math.max(0,ox),oy=Math.max(0,oy);
+	if(shift){//dock to (y,x+w)
+		for(var i=imgs.length;--i>=0;){
+			it=imgs[i];
+			if(i===ev.n||img===it){continue}
+			if(oy<threshold){
+				yt=true
+				oy=0;
+			}else if(Math.abs(it.y-oy)<threshold){//top-top
+				if(ox>=it.x+it.w){//right
+					if( Math.abs(ox-it.x-it.w) <threshold){
+						yt=true,oy=it.y
+					}
+				}else if(ox+ow<=it.x){//left
+					if(Math.abs(ox+ow-it.x)<threshold){
+						yt=true,oy=it.y
+					}
+				}
+			}else if(Math.abs(it.y+it.h - oy)<threshold){//top-bottom
+				if(ox>=it.x && (ox+ow <= it.x+it.w) ||Math.abs(ox-it.x)<threshold || Math.abs(ox-it.x-it.w)<threshold
+					|| Math.abs(ox+ow-it.x)<threshold || Math.abs(ox+ow-it.x-it.w)<threshold){
+					yt=true,oy=it.y+it.h
+				}
+			}else if(Math.abs(it.y-oy-oh)<threshold){//bottom-top
+				yt=true;
+				oy=it.y-oh
+			}else if(Math.abs(it.y+it.h-oy-oh)<threshold){//bottom-bottom
+				if(ox>=it.x+it.w){//right
+					if(Math.abs(ox-it.x-it.w)<threshold){
+						yt=true,oy=it.y+it.h-oh
+					}
+				}else if(ox+ow<=it.x){//left
+					if(Math.abs(it.x-ox-ow)<threshold){
+						yt=true,oy=it.y+it.h-oh
+					}
+				}
+			}
+
+			if(ox<threshold){
+				xt=true;ox=0;
+			}else if(Math.abs(it.x -ox)<threshold){//left-left
+				if(oy+oh<=it.y){//top
+					if(Math.abs(oy+oh-it.y)<threshold){
+						xt=true,ox=it.x
+					}
+				}else if(oy>=it.y+it.h){//bottom
+					if(Math.abs(oy>=it.y+it.h)<threshold){
+						xt=true,ox=it.x
+					}
+				}
+			}else if(Math.abs(it.x+it.w - ox)<threshold){//left-right
+				if(oy>=it.y && (oy+oh<=it.y+it.h) ||Math.abs(oy-it.y)<threshold || Math.abs(oy-it.y-it.h)<threshold
+					|| Math.abs(oy+oh-it.y)<threshold || Math.abs(oy+oh-it.y-it.h)<threshold){
+					xt=true,ox=it.x+it.w;
+				}
+			}else if(Math.abs(ox+ow-it.x)<threshold){//right-left
+				if(oy>it.y&&oy+oh<it.y+it.h||Math.abs(oy-it.y)<threshold || Math.abs(oy-it.y-it.h)<threshold
+					|| Math.abs(oy+oh-it.y)<threshold || Math.abs(oy+oh-it.y-it.h)<threshold){
+					xt=true;ox=it.x-ow
+				}
+			}else if(Math.abs(ox+ow-it.x-it.w)<threshold){//right-right
+				if(oy+oh<=it.y){//top
+					if(Math.abs(oy+oh-it.y)<threshold){
+						xt=true,ox=it.x+it.w-ow
+					}
+				}else if(oy>=it.y+it.h){//bottom
+					if(Math.abs(oy-it.y-it.h)<threshold){
+						xt=true,ox=it.x+it.w-ow
+					}
+				}
+			}
+			//if(xt||yt){break}
+		}
+	}
+	img.x=ox,img.y=oy;
+})
+window.addEventListener('mouseup',function(){
+	ev.drag=false;
+	imgs.length&&console.log('duty:%d%',imgs.map(m=>m.w*m.h).reduce((a,b)=>a+b)/can.width/can.height*100)
+	calcStyle()
+})
+window.addEventListener('keydown',function (e){
+	var img=imgs[ev.n];if(!img){return}
+	switch(e.key){
+		case 'ArrowUp':    e.preventDefault();img.y=img.y<=0?0:img.y-1;break;
+		case 'ArrowDown':  e.preventDefault();img.y++;break;
+		case 'ArrowLeft':  e.preventDefault();img.x=img.x<=0?0:img.x-1;break;
+		case 'ArrowRight': e.preventDefault();img.x++;break;
+
+		case 'Delete':
+			if(ev.n>-1){imgs.pop()}
+			break;
+		case 'F':
+			ev.n=ev.n<1?imgs.length-1:ev.n-1;
+			break;
+		case 'f':
+			ev.n=ev.n>=imgs.length-1?0:ev.n+1;
+			break;
+	}
+})
+function hittest(rc,x,y){
+	return rc.x <= x && rc.x+rc.w >= x && rc.y <= y && rc.y+rc.h >= y;
+}
+function resort(arr,d){
+	var tmp=arr[d];
+	for(var i=d,l=arr.length;i<l;i++){
+		arr[i]=arr[i+1]
+	}
+	arr[l-1]=tmp
+
+}
+</script>
+
+</body>
+</html>
